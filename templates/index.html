@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zebrafish Mutant Database</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            margin-bottom: 1.5rem;
+        }
+        .mutant-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+        #plotArea {
+            min-height: 400px;
+        }
+    </style>
+</head>
+<body>
+    
+    <!-- Header -->
+    <div class="header">
+        <div class="container">
+            <h1 class="display-4">🐟 Zebrafish Mutant Database</h1>
+            <p class="lead">Interactive visualization of zebrafish mutant phenotypes and behavior</p>
+        </div>
+    </div>
+
+    <div class="container">
+        
+        <!-- Mutant Selection -->
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Select Mutant</h5>
+                <div class="row">
+                    <div class="col-md-8">
+                        <select id="mutantSelect" class="form-select form-select-lg">
+                            <option value="">-- Choose a mutant --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button id="loadDataBtn" class="btn btn-primary btn-lg w-100" disabled>
+                            Load Data
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Mutant Info -->
+                <div id="mutantInfo" class="mt-3" style="display: none;">
+                    <div class="alert alert-info">
+                        <strong>Gene:</strong> <span id="geneName"></span><br>
+                        <strong>Phenotype:</strong> <span id="phenotype"></span>
+                    </div>
+                    <img id="mutantImage" class="mutant-image" src="" alt="Mutant image" style="display: none;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div class="loading" id="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading data...</p>
+        </div>
+
+        <!-- Tabs for Size Metrics and Behavior Data -->
+        <ul class="nav nav-tabs" id="dataTabs" role="tablist" style="display: none;">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="size-tab" data-bs-toggle="tab" 
+                        data-bs-target="#sizeMetrics" type="button" role="tab">
+                    📏 Size Metrics
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="behavior-tab" data-bs-toggle="tab" 
+                        data-bs-target="#behaviorData" type="button" role="tab">
+                    📊 Behavior Data
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="dataTabContent">
+            
+            <!-- Size Metrics Tab -->
+            <div class="tab-pane fade show active" id="sizeMetrics" role="tabpanel">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Size Metrics Data</h5>
+                        <div class="table-responsive">
+                            <table id="sizeMetricsTable" class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Age (dpf)</th>
+                                        <th>Body Length (mm)</th>
+                                        <th>Head Width (mm)</th>
+                                        <th>Tail Length (mm)</th>
+                                        <th>Weight (mg)</th>
+                                        <th>Sample Size</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Behavior Data Tab -->
+            <div class="tab-pane fade" id="behaviorData" role="tabpanel">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Behavior Plots</h5>
+                        <div id="plotArea"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    
+    <!-- Plotly JS -->
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+
+    <script>
+        let dataTable;
+
+        // Load mutants on page load
+        $(document).ready(function() {
+            loadMutants();
+            
+            // Enable load button when mutant is selected
+            $('#mutantSelect').change(function() {
+                $('#loadDataBtn').prop('disabled', !this.value);
+            });
+            
+            // Load data when button is clicked
+            $('#loadDataBtn').click(function() {
+                const mutantId = $('#mutantSelect').val();
+                if (mutantId) {
+                    loadMutantData(mutantId);
+                }
+            });
+        });
+
+        // Load all mutants for dropdown
+        function loadMutants() {
+            $.get('/api/mutants', function(mutants) {
+                const select = $('#mutantSelect');
+                mutants.forEach(mutant => {
+                    select.append(
+                        `<option value="${mutant.mutant_id}">
+                            ${mutant.mutant_name} (${mutant.gene_name})
+                        </option>`
+                    );
+                });
+            });
+        }
+
+        // Load data for selected mutant
+        function loadMutantData(mutantId) {
+            $('#loading').show();
+            $('#dataTabs').hide();
+            $('#dataTabContent').hide();
+            
+            // Load mutant info
+            $.get(`/api/mutant/${mutantId}`, function(mutant) {
+                $('#geneName').text(mutant.gene_name);
+                $('#phenotype').text(mutant.phenotype || 'N/A');
+                $('#mutantInfo').show();
+                
+                if (mutant.image_path) {
+                    $('#mutantImage').attr('src', mutant.image_path).show();
+                } else {
+                    $('#mutantImage').hide();
+                }
+            });
+
+            // Load size metrics
+            $.get(`/api/size-metrics/${mutantId}`, function(metrics) {
+                updateSizeMetricsTable(metrics);
+            });
+
+            // Load behavior data
+            $.get(`/api/behavior-data/${mutantId}`, function(behaviorData) {
+                createBehaviorPlots(behaviorData);
+                
+                $('#loading').hide();
+                $('#dataTabs').show();
+                $('#dataTabContent').show();
+            });
+        }
+
+        // Update size metrics table
+        function updateSizeMetricsTable(metrics) {
+            if (dataTable) {
+                dataTable.destroy();
+            }
+
+            const tbody = $('#sizeMetricsTable tbody');
+            tbody.empty();
+
+            metrics.forEach(metric => {
+                tbody.append(`
+                    <tr>
+                        <td>${metric.age_dpf || 'N/A'}</td>
+                        <td>${metric.body_length || 'N/A'}</td>
+                        <td>${metric.head_width || 'N/A'}</td>
+                        <td>${metric.tail_length || 'N/A'}</td>
+                        <td>${metric.weight_mg || 'N/A'}</td>
+                        <td>${metric.sample_size || 'N/A'}</td>
+                    </tr>
+                `);
+            });
+
+            dataTable = $('#sizeMetricsTable').DataTable({
+                pageLength: 10,
+                order: [[0, 'asc']]
+            });
+        }
+
+        // Create behavior plots
+        function createBehaviorPlots(behaviorData) {
+            const plotArea = document.getElementById('plotArea');
+            plotArea.innerHTML = ''; // Clear previous plots
+
+            if (Object.keys(behaviorData).length === 0) {
+                plotArea.innerHTML = '<p class="text-muted">No behavior data available for this mutant.</p>';
+                return;
+            }
+
+            // Create a plot for each behavior type
+            Object.keys(behaviorData).forEach((behaviorType, index) => {
+                const data = behaviorData[behaviorType];
+                
+                // Create container for this plot
+                const plotDiv = document.createElement('div');
+                plotDiv.id = `plot-${index}`;
+                plotDiv.style.marginBottom = '20px';
+                plotArea.appendChild(plotDiv);
+
+                const trace = {
+                    x: data.time_points,
+                    y: data.values,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: behaviorType,
+                    line: { width: 2 },
+                    marker: { size: 8 }
+                };
+
+                const layout = {
+                    title: {
+                        text: behaviorType.replace(/_/g, ' ').toUpperCase(),
+                        font: { size: 18 }
+                    },
+                    xaxis: { 
+                        title: 'Time (s)',
+                        gridcolor: '#e0e0e0'
+                    },
+                    yaxis: { 
+                        title: `Value (${data.unit})`,
+                        gridcolor: '#e0e0e0'
+                    },
+                    plot_bgcolor: '#f8f9fa',
+                    paper_bgcolor: 'white',
+                    hovermode: 'closest'
+                };
+
+                const config = {
+                    responsive: true,
+                    displayModeBar: true,
+                    displaylogo: false
+                };
+
+                Plotly.newPlot(plotDiv, [trace], layout, config);
+            });
+        }
+    </script>
+
+</body>
+</html>
